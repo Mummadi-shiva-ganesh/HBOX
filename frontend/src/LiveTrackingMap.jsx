@@ -23,7 +23,8 @@ const LiveTrackingMap = ({ orderId, onClose }) => {
     const [location, setLocation] = useState(null);
 
     useEffect(() => {
-        const socket = io('http://127.0.0.1:5000');
+        const socketUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : 'http://127.0.0.1:5000';
+        const socket = io(socketUrl);
         socket.emit('join_order', orderId);
 
         socket.on('location_update', (data) => {

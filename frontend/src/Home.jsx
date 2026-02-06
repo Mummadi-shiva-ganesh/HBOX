@@ -39,7 +39,8 @@ const Home = () => {
     }, [selectedDate]);
 
     useEffect(() => {
-        const socket = io('http://127.0.0.1:5000');
+        const socketUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : 'http://127.0.0.1:5000';
+        const socket = io(socketUrl);
         orders.forEach(order => socket.emit('join_order', order.id));
         socket.on('status_update', (data) => {
             setOrders(prev => prev.map(o => o.id === data.orderId ? { ...o, status: data.status } : o));
