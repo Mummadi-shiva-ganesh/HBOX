@@ -47,7 +47,15 @@ const Login = () => {
             else if (result.role === 'rider') navigate('/rider');
             else navigate('/');
         } catch (err) {
-            setError('Google sign-in failed');
+            console.error('Google Login Error:', err);
+            // Show more specific error message
+            if (err.message?.includes('Firebase')) {
+                setError('Firebase not configured. Please contact support.');
+            } else if (err.message?.includes('popup was closed')) {
+                setError('Sign-in cancelled');
+            } else {
+                setError(err.message || 'Google sign-in failed');
+            }
         }
     };
 

@@ -1,7 +1,9 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 
-// TODO: Replace with your real Firebase config from Firebase Console
+// Firebase configuration
+// Get these values from Firebase Console: https://console.firebase.google.com/
+// Project Settings > General > Your apps > Web app
 const firebaseConfig = {
     apiKey: "YOUR_API_KEY",
     authDomain: "YOUR_AUTH_DOMAIN",

@@ -47,7 +47,10 @@ const login = (req, res) => {
     }
 
     db.get(query, params, async (err, user) => {
-        if (err) return res.status(500).json({ error: 'Database error' });
+        if (err) {
+            console.error('Database error during login:', err);
+            return res.status(500).json({ error: 'Database error' });
+        }
 
         if (!user) {
             if (google_id || phone) {
@@ -57,8 +60,11 @@ const login = (req, res) => {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        // Only check password for email login
-        if (email && password) {
+        // Only check password for email/password login (not for Google or phone login)
+        if (email && password && !google_id && !phone) {
+            if (!user.password) {
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
             const isMatch = await bcrypt.compare(password, user.password);
             if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
         }

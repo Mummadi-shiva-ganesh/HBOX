@@ -22,14 +22,51 @@ const checkUser = async (email, password) => {
         console.log(`User found: ${user.email}`);
         console.log(`Stored Hash: ${user.password}`);
 
-        const isMatch = await bcrypt.compare(password, user.password);
-        console.log(`Password match for "${password}": ${isMatch}`);
+        if (user.password) {
+            const isMatch = await bcrypt.compare(password, user.password);
+            console.log(`Password match for "${password}": ${isMatch}`);
 
-        const testHash = await bcrypt.hash(password, 10);
-        console.log(`New hash for "${password}": ${testHash}`);
+            const testHash = await bcrypt.hash(password, 10);
+            console.log(`New hash for "${password}": ${testHash}`);
+        } else {
+            console.log('User has no password (likely Google/social login)');
+        }
 
         db.close();
     });
 };
 
+const checkGoogleUser = (google_id) => {
+    db.get('SELECT * FROM users WHERE google_id = ?', [google_id], (err, user) => {
+        if (err) {
+            console.error('DB Error:', err);
+            return;
+        }
+        if (!user) {
+            console.log(`Google user not found: ${google_id}`);
+            db.all('SELECT email, google_id FROM users WHERE google_id IS NOT NULL', [], (err, rows) => {
+                console.log('Existing Google users:', rows);
+            });
+            return;
+        }
+
+        console.log('Google user found:', {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            google_id: user.google_id,
+            has_password: !!user.password
+        });
+
+        db.close();
+    });
+};
+
+// Test regular email/password login
+console.log('=== Testing Email/Password Login ===');
 checkUser('customer@example.com', 'password123');
+
+// Uncomment to test Google login (replace with actual google_id)
+// console.log('\n=== Testing Google Login ===');
+// checkGoogleUser('YOUR_GOOGLE_ID_HERE');
