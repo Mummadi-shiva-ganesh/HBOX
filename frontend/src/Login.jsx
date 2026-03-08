@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from './AuthContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import { Package2, Phone, Mail, Lock, ChevronRight } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const Login = () => {
     const [loginMethod, setLoginMethod] = useState('email'); // 'email', 'phone'
@@ -10,7 +11,6 @@ const Login = () => {
     const [phone, setPhone] = useState('');
     const [otp, setOtp] = useState('');
     const [step, setStep] = useState(1);
-    const [error, setError] = useState('');
     const { login, googleLogin } = useAuth();
     const navigate = useNavigate();
 
@@ -31,8 +31,8 @@ const Login = () => {
             if (user.role === 'admin') navigate('/admin');
             else if (user.role === 'rider') navigate('/rider');
             else navigate('/');
-        } catch (err) {
-            setError('Invalid credentials');
+            } catch (err) {
+            toast.error('Invalid credentials');
         }
     };
 
@@ -48,14 +48,15 @@ const Login = () => {
             else navigate('/');
         } catch (err) {
             console.error('Google Login Error:', err);
-            // Show more specific error message
+            // Show more specific error message using toast
             if (err.message?.includes('Firebase')) {
-                setError('Firebase not configured. Please contact support.');
+                toast.error('Firebase not configured. Please contact support.');
             } else if (err.message?.includes('popup was closed')) {
-                setError('Sign-in cancelled');
+                toast.error('Sign-in cancelled');
             } else {
-                setError(err.message || 'Google sign-in failed');
+                toast.error(err.message || 'Google sign-in failed');
             }
+
         }
     };
 
@@ -139,8 +140,6 @@ const Login = () => {
                                 />
                             </div>
                         )}
-
-                        {error && <p className="text-red-500 text-[11px] font-bold text-center bg-red-50 p-3 rounded-xl">{error}</p>}
 
                         <button type="submit" className="uber-btn-black w-full bg-blue-600 hover:bg-blue-500 border-none !py-4 justify-center">
                             <span>{loginMethod === 'phone' && step === 1 ? 'Next' : 'Login'}</span>

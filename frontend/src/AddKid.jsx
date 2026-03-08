@@ -22,11 +22,11 @@ const AddKid = () => {
         setLoading(true);
         setError('');
 
-        // Demo Logic: Assign random coordinates near Bangalore center if not provided
+        // Demo Logic: Assign random coordinates near Hyderabad center if not provided
         const finalKid = {
             ...kid,
-            school_lat: kid.school_lat || (12.9716 + (Math.random() - 0.5) * 0.05),
-            school_lng: kid.school_lng || (77.5946 + (Math.random() - 0.5) * 0.05)
+            school_lat: kid.school_lat || (17.3850 + (Math.random() - 0.5) * 0.05),
+            school_lng: kid.school_lng || (78.4867 + (Math.random() - 0.5) * 0.05)
         };
 
         try {

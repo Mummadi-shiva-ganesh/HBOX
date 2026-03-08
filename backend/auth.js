@@ -35,43 +35,71 @@ const register = async (req, res) => {
 const login = (req, res) => {
     const { email, password, google_id, phone } = req.body;
 
-    let query = 'SELECT * FROM users WHERE email = ?';
-    let params = [email];
-
+    // First, try finding by Google ID or Phone if provided
     if (google_id) {
-        query = 'SELECT * FROM users WHERE google_id = ?';
-        params = [google_id];
-    } else if (phone) {
-        query = 'SELECT * FROM users WHERE phone = ?';
-        params = [phone];
+        db.get('SELECT * FROM users WHERE google_id = ?', [google_id], (err, user) => {
+            if (err) return res.status(500).json({ error: 'Database error' });
+            if (user) {
+                return generateTokenAndSend(res, user);
+            } else if (email) {
+                // Google ID not found, but we have an email. Check if a user with this email exists.
+                db.get('SELECT * FROM users WHERE email = ?', [email], (err, userByEmail) => {
+                    if (err) return res.status(500).json({ error: 'Database error' });
+                    if (userByEmail) {
+                        // User exists by email - link the Google ID!
+                        db.run('UPDATE users SET google_id = ? WHERE id = ?', [google_id, userByEmail.id], (err) => {
+                            if (err) return res.status(500).json({ error: 'Failed to link Google account' });
+                            userByEmail.google_id = google_id;
+                            return generateTokenAndSend(res, userByEmail);
+                        });
+                    } else {
+                        // Truly a new user
+                        return res.status(200).json({ newUser: true, google_id });
+                    }
+                });
+            } else {
+                return res.status(200).json({ newUser: true, google_id });
+            }
+        });
+        return;
     }
 
-    db.get(query, params, async (err, user) => {
+    if (phone) {
+        db.get('SELECT * FROM users WHERE phone = ?', [phone], (err, user) => {
+            if (err) return res.status(500).json({ error: 'Database error' });
+            if (user) {
+                return generateTokenAndSend(res, user);
+            }
+            return res.status(200).json({ newUser: true, phone });
+        });
+        return;
+    }
+
+    // Default: Email/Password login
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password required' });
+    }
+
+    db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
         if (err) {
             console.error('Database error during login:', err);
             return res.status(500).json({ error: 'Database error' });
         }
 
-        if (!user) {
-            if (google_id || phone) {
-                // Return a special status for "New user via Social/Phone"
-                return res.status(200).json({ newUser: true, google_id, phone });
-            }
+        if (!user || !user.password) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        // Only check password for email/password login (not for Google or phone login)
-        if (email && password && !google_id && !phone) {
-            if (!user.password) {
-                return res.status(401).json({ error: 'Invalid credentials' });
-            }
-            const isMatch = await bcrypt.compare(password, user.password);
-            if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
-        }
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
 
-        const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
-        res.json({ token, user: { id: user.id, name: user.name, role: user.role } });
+        return generateTokenAndSend(res, user);
     });
+};
+
+const generateTokenAndSend = (res, user) => {
+    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    res.json({ token, user: { id: user.id, name: user.name, role: user.role } });
 };
 
 const authenticate = (req, res, next) => {

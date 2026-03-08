@@ -4,13 +4,15 @@ import { getAuth, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 // Firebase configuration
 // Get these values from Firebase Console: https://console.firebase.google.com/
 // Project Settings > General > Your apps > Web app
+
 const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_AUTH_DOMAIN",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_STORAGE_BUCKET",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
+    apiKey: "AIzaSyAjhDzuvXIXuAUEL88tQ5WZIQauswoN_a4",
+    authDomain: "hbox-c2bf7.firebaseapp.com",
+    projectId: "hbox-c2bf7",
+    storageBucket: "hbox-c2bf7.firebasestorage.app",
+    messagingSenderId: "98031449991",
+    appId: "1:98031449991:web:f73d121a3a8aeffbe14522",
+    measurementId: "G-8PFFJ0MRG4"
 };
 
 const app = initializeApp(firebaseConfig);

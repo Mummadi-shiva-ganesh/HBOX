@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Package, MapPin, Clock, ChevronRight, CheckCircle, Navigation, Phone, Truck, X, Bike, Map as MapIcon, LogOut } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Package, MapPin, Clock, ChevronRight, CheckCircle, Navigation, Phone, Truck, X, Bike, Map as MapIcon, LogOut, UserCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import api from './api';
 import { useAuth } from './AuthContext.jsx';
 import { io } from 'socket.io-client';
@@ -17,17 +18,42 @@ L.Icon.Default.mergeOptions({
 
 function ChangeView({ center }) {
     const map = useMap();
-    map.setView(center);
+    useEffect(() => {
+        map.setView(center, map.getZoom(), { animate: true });
+    }, [center, map]);
     return null;
+}
+
+// Haversine distance calculation in km
+function getDistanceKm(lat1, lng1, lat2, lng2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 const Rider = () => {
     const { user, logout } = useAuth();
+    const navigate = useNavigate();
     const [deliveries, setDeliveries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showMap, setShowMap] = useState(null);
-    const [currentPos, setCurrentPos] = useState({ lat: 12.9716, lng: 77.5946 }); // Default Bangalore
+    const [currentPos, setCurrentPos] = useState(null);
+    const [locationError, setLocationError] = useState(null);
     const [socket, setSocket] = useState(null);
+    const watchIdRef = useRef(null);
+    const currentPosRef = useRef(null);
+    const socketRef = useRef(null);
+
+    // Keep refs in sync
+    useEffect(() => {
+        currentPosRef.current = currentPos;
+    }, [currentPos]);
+
+    useEffect(() => {
+        socketRef.current = socket;
+    }, [socket]);
 
     useEffect(() => {
         const socketUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : 'http://127.0.0.1:5000';
@@ -35,16 +61,42 @@ const Rider = () => {
         setSocket(newSocket);
         fetchDeliveries();
 
+        // Use watchPosition for continuous live GPS tracking
         if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition((position) => {
-                setCurrentPos({
-                    lat: position.coords.latitude,
-                    lng: position.coords.longitude
-                });
-            });
+            watchIdRef.current = navigator.geolocation.watchPosition(
+                (position) => {
+                    const newPos = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    setCurrentPos(newPos);
+                    setLocationError(null);
+                },
+                (error) => {
+                    console.error("GPS Error:", error);
+                    setLocationError("Unable to get your location. Please enable GPS.");
+                    // Fallback to a default position if GPS fails
+                    if (!currentPosRef.current) {
+                        setCurrentPos({ lat: 12.9716, lng: 77.5946 }); // Default Bangalore
+                    }
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 2000
+                }
+            );
+        } else {
+            setLocationError("Geolocation is not supported by your browser.");
+            setCurrentPos({ lat: 12.9716, lng: 77.5946 });
         }
 
-        return () => newSocket.disconnect();
+        return () => {
+            newSocket.disconnect();
+            if (watchIdRef.current !== null) {
+                navigator.geolocation.clearWatch(watchIdRef.current);
+            }
+        };
     }, []);
 
     const fetchDeliveries = async () => {
@@ -65,52 +117,70 @@ const Rider = () => {
             await api.put(`/orders/${orderId}`, body);
 
             if (status === 'Out for Delivery') {
-                startLocationSimulation(orderId);
+                startLiveLocationEmit(orderId);
             }
 
-            socket.emit('update_status', { orderId, status });
+            if (socketRef.current) {
+                socketRef.current.emit('update_status', { orderId, status });
+            }
             fetchDeliveries();
         } catch (err) {
             console.error(err);
         }
     };
 
-    const startLocationSimulation = (orderId) => {
-        let count = 0;
+    // Emit the rider's REAL GPS location to the customer every 3 seconds
+    const startLiveLocationEmit = useCallback((orderId) => {
         const activeDelivery = deliveries.find(d => d.id === orderId);
         if (!activeDelivery) return;
 
         const interval = setInterval(() => {
-            if (deliveries.find(d => d.id === orderId)?.status !== 'Out for Delivery' && count > 0) {
-                clearInterval(interval);
-                return;
-            }
+            const pos = currentPosRef.current;
+            const sock = socketRef.current;
+            if (!pos || !sock) return;
 
-            const newPos = {
-                lat: currentPos.lat + (count * 0.0005),
-                lng: currentPos.lng + (count * 0.0005)
-            };
+            const destLat = activeDelivery.school_lat;
+            const destLng = activeDelivery.school_lng;
 
-            setCurrentPos(newPos);
-            socket.emit('update_location', {
+            // Calculate real distance and ETA
+            const distKm = getDistanceKm(pos.lat, pos.lng, destLat, destLng);
+            const distStr = distKm < 1 ? `${(distKm * 1000).toFixed(0)} m` : `${distKm.toFixed(1)} km`;
+            // Assume avg speed of 20 km/h for city delivery
+            const etaMinutes = Math.max(1, Math.round((distKm / 20) * 60));
+            const etaStr = etaMinutes <= 1 ? '1 min' : `${etaMinutes} mins`;
+
+            sock.emit('update_location', {
                 orderId,
                 riderId: user.id,
-                lat: newPos.lat,
-                lng: newPos.lng,
-                destLat: activeDelivery.school_lat,
-                destLng: activeDelivery.school_lng,
+                lat: pos.lat,
+                lng: pos.lng,
+                destLat,
+                destLng,
                 timestamp: new Date().toISOString(),
-                distance: "0.8 km",
-                eta: "4 mins"
+                distance: distStr,
+                eta: etaStr
             });
-            count++;
-            if (count > 50) clearInterval(interval);
         }, 3000);
-    };
 
+        // Stop emitting after 30 minutes max
+        setTimeout(() => clearInterval(interval), 30 * 60 * 1000);
+
+        return () => clearInterval(interval);
+    }, [deliveries, user.id]);
+
+    // Open Google Maps with rider's current position as origin and school as destination
     const openNavigation = (delivery) => {
-        const url = `https://www.google.com/maps/dir/?api=1&destination=${delivery.school_lat},${delivery.school_lng}&travelmode=driving`;
-        window.open(url, '_blank');
+        const pos = currentPosRef.current;
+        let url;
+        const searchInput = `${delivery.school_name}, ${delivery.school_address}`;
+        const encodedDestination = encodeURIComponent(searchInput);
+        
+        if (pos && pos.lat) {
+            url = `https://www.google.com/maps/dir/?api=1&origin=${pos.lat},${pos.lng}&destination=${encodedDestination}&travelmode=driving`;
+        } else {
+            url = `https://www.google.com/maps/dir/?api=1&destination=${encodedDestination}&travelmode=driving`;
+        }
+        if (url) window.open(url, '_blank');
     };
 
     const riderIcon = new L.Icon({
@@ -125,9 +195,10 @@ const Rider = () => {
         iconAnchor: [20, 40]
     });
 
-    if (loading) return (
-        <div className="min-h-screen bg-black flex items-center justify-center">
+    if (loading || !currentPos) return (
+        <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4">
             <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+            {!currentPos && <p className="text-gray-400 text-xs font-bold uppercase tracking-widest">Getting your location...</p>}
         </div>
     );
 
@@ -139,17 +210,34 @@ const Rider = () => {
                     <div>
                         <h1 className="text-3xl font-black tracking-tight">HBOX Pilot</h1>
                         <div className="flex items-center gap-2 mt-1">
-                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                            <p className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">Active & Online</p>
+                            <div className={`w-2 h-2 rounded-full animate-pulse ${locationError ? 'bg-red-500' : 'bg-green-500'}`}></div>
+                            <p className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">
+                                {locationError ? 'GPS Issue' : 'Active & Online'}
+                            </p>
                         </div>
                     </div>
-                    <button
-                        onClick={logout}
-                        className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
-                    >
-                        <LogOut className="w-6 h-6 text-gray-400" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => navigate('/rider/profile')}
+                            className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                        >
+                            <UserCircle className="w-6 h-6 text-gray-400" />
+                        </button>
+                        <button
+                            onClick={logout}
+                            className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                        >
+                            <LogOut className="w-6 h-6 text-gray-400" />
+                        </button>
+                    </div>
                 </div>
+
+                {/* GPS Error Banner */}
+                {locationError && (
+                    <div className="mx-6 mt-4 p-4 bg-red-500/10 rounded-2xl border border-red-500/20 text-red-400 text-sm font-bold text-center">
+                        {locationError}
+                    </div>
+                )}
 
                 {/* Daily Stats - Flexible Grid */}
                 <div className="px-6 mt-8">
@@ -208,6 +296,29 @@ const Rider = () => {
                                                 <p className="text-sm font-bold text-gray-300 truncate">{delivery.school_address}</p>
                                             </div>
                                         </div>
+                                        {/* Show distance to destination */}
+                                        {delivery.school_lat && currentPos && (
+                                            <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-3">
+                                                        <Navigation className="w-4 h-4 text-blue-400" />
+                                                        <p className="text-sm font-bold text-gray-300">
+                                                            {(() => {
+                                                                if (!currentPos || !currentPos.lat || !delivery.school_lat) return 'Calculating...';
+                                                                const d = getDistanceKm(currentPos.lat, currentPos.lng, delivery.school_lat, delivery.school_lng);
+                                                                return d < 1 ? `${(d * 1000).toFixed(0)} m away` : `${d.toFixed(1)} km away`;
+                                                            })()}
+                                                        </p>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => openNavigation(delivery)}
+                                                        className="text-blue-400 text-xs font-bold underline underline-offset-2"
+                                                    >
+                                                        Navigate
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {delivery.status !== 'Delivered' && (
@@ -229,13 +340,22 @@ const Rider = () => {
                                                 </button>
                                             )}
                                             {delivery.status === 'Picked Up' && (
-                                                <button
-                                                    onClick={() => updateStatus(delivery.id, 'Out for Delivery')}
-                                                    className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-blue-600/20 flex items-center justify-center space-x-3 transition-all active:scale-95"
-                                                >
-                                                    <Navigation className="w-5 h-5 fill-current" />
-                                                    <span>Start Navigation</span>
-                                                </button>
+                                                <div className="flex flex-col gap-3">
+                                                    <button
+                                                        onClick={() => updateStatus(delivery.id, 'Out for Delivery')}
+                                                        className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-blue-600/20 flex items-center justify-center space-x-3 transition-all active:scale-95"
+                                                    >
+                                                        <Navigation className="w-5 h-5 fill-current" />
+                                                        <span>Start Delivery</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => openNavigation(delivery)}
+                                                        className="w-full bg-white/10 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-95 border border-white/10"
+                                                    >
+                                                        <img src="https://www.gstatic.com/images/branding/product/2x/maps_96dp.png" className="w-5 h-5" alt="Google Maps" />
+                                                        <span>Open in Google Maps</span>
+                                                    </button>
+                                                </div>
                                             )}
                                             {delivery.status === 'Out for Delivery' && (
                                                 <div className="flex flex-col gap-3">
@@ -245,6 +365,13 @@ const Rider = () => {
                                                     >
                                                         <MapIcon className="w-5 h-5" />
                                                         <span>In-App Tracking</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => openNavigation(delivery)}
+                                                        className="w-full bg-white/10 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-95 border border-white/10"
+                                                    >
+                                                        <img src="https://www.gstatic.com/images/branding/product/2x/maps_96dp.png" className="w-5 h-5" alt="Google Maps" />
+                                                        <span>Navigate with Google Maps</span>
                                                     </button>
                                                     <button
                                                         onClick={() => updateStatus(delivery.id, 'Delivered')}
@@ -271,6 +398,15 @@ const Rider = () => {
                             <div>
                                 <h3 className="text-xl font-black">{showMap.school_name}</h3>
                                 <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">{showMap.school_address}</p>
+                                {currentPos && showMap.school_lat && (
+                                    <p className="text-blue-400 text-xs font-bold mt-1">
+                                        {(() => {
+                                            if (!currentPos || !currentPos.lat || !showMap.school_lat) return 'Calculating...';
+                                            const d = getDistanceKm(currentPos.lat, currentPos.lng, showMap.school_lat, showMap.school_lng);
+                                            return d < 1 ? `${(d * 1000).toFixed(0)} m away` : `${d.toFixed(1)} km away`;
+                                        })()}
+                                    </p>
+                                )}
                             </div>
                             <button
                                 onClick={() => setShowMap(null)}
@@ -281,17 +417,21 @@ const Rider = () => {
                         </div>
 
                         <div className="flex-1 relative">
-                            <MapContainer center={[currentPos.lat, currentPos.lng]} zoom={14} className="h-full w-full grayscale contrast-[1.2]">
+                            <MapContainer center={[currentPos.lat, currentPos.lng]} zoom={15} className="h-full w-full grayscale contrast-[1.2]">
                                 <TileLayer
                                     url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
                                     attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
                                 />
 
-                                <Marker position={[currentPos.lat, currentPos.lng]} icon={riderIcon} />
+                                <Marker position={[currentPos.lat, currentPos.lng]} icon={riderIcon}>
+                                    <Popup>You are here</Popup>
+                                </Marker>
 
                                 {showMap.school_lat && (
                                     <>
-                                        <Marker position={[showMap.school_lat, showMap.school_lng]} icon={schoolIcon} />
+                                        <Marker position={[showMap.school_lat, showMap.school_lng]} icon={schoolIcon}>
+                                            <Popup>{showMap.school_name}</Popup>
+                                        </Marker>
                                         <Polyline
                                             positions={[
                                                 [currentPos.lat, currentPos.lng],
@@ -300,6 +440,7 @@ const Rider = () => {
                                             color="#276EF1"
                                             weight={6}
                                             opacity={0.8}
+                                            dashArray="12 8"
                                         />
                                     </>
                                 )}
@@ -310,10 +451,10 @@ const Rider = () => {
                             <div className="absolute bottom-12 left-6 right-6 z-[1000] animate-uber-slide-up lg:w-96 lg:left-1/2 lg:-translate-x-1/2">
                                 <button
                                     onClick={() => openNavigation(showMap)}
-                                    className="w-full bg-black text-white border-2 border-white/10 font-black py-6 rounded-full shadow-[0_20px_40px_rgba(0,0,0,0.5)] flex items-center justify-center gap-3 active:scale-95 transition-all hover:bg-gray-900"
+                                    className="w-full bg-white text-black font-black py-6 rounded-full shadow-[0_20px_40px_rgba(0,0,0,0.5)] flex items-center justify-center gap-3 active:scale-95 transition-all hover:bg-gray-100"
                                 >
-                                    <Navigation className="w-6 h-6 text-blue-500" />
-                                    <span>Switch to Google Maps</span>
+                                    <img src="https://www.gstatic.com/images/branding/product/2x/maps_96dp.png" className="w-6 h-6" alt="Google Maps" />
+                                    <span>Navigate with Google Maps</span>
                                 </button>
                             </div>
                         </div>

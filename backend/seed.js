@@ -30,21 +30,22 @@ const seed = async () => {
         console.log('Password hash generated.');
 
         await run('INSERT INTO users (name, email, password, role, phone, address) VALUES (?, ?, ?, ?, ?, ?)',
-            ['Admin User', 'admin@example.com', password, 'admin', '9876543210', 'Head Office']);
+            ['Admin User', 'admin@example.com', password, 'admin', '9876543210', 'Head Office, Hyderabad']);
         await run('INSERT INTO users (name, email, password, role, phone, address) VALUES (?, ?, ?, ?, ?, ?)',
-            ['Rahul Sharma', 'customer@example.com', password, 'customer', '9988776655', 'Apartment 402']);
+            ['Rahul Sharma', 'customer@example.com', password, 'customer', '9988776655', 'Apartment 402, Chaitanya Nagar, Hyderabad']);
         await run('INSERT INTO users (name, email, password, role, phone, address) VALUES (?, ?, ?, ?, ?, ?)',
-            ['Suresh Kumar', 'rider@example.com', password, 'rider', '9123456789', 'Rider Hub']);
+            ['Suresh Kumar', 'rider@example.com', password, 'rider', '9123456789', 'Rider Hub, Kukatpally, Hyderabad']);
         console.log('Users inserted.');
 
         // Get customer id (should be 2)
         const customer = await new Promise((res) => db.get("SELECT id FROM users WHERE email = 'customer@example.com'", (err, row) => res(row)));
         const rider = await new Promise((res) => db.get("SELECT id FROM users WHERE email = 'rider@example.com'", (err, row) => res(row)));
 
+        // Schools in Hyderabad area (near Kukatpally / KPHB / Miyapur)
         await run('INSERT INTO kids_lunch_boxes (customer_id, kid_name, school_name, school_address, school_lat, school_lng, parent_phone, delivery_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [customer.id, 'Aryan Sharma', 'St. Xavier\'s', 'Richmond Road', 12.9667, 77.6067, '9876543210', '123, Marathahalli']);
+            [customer.id, 'Aryan Sharma', 'Delhi Public School', 'Nacharam, Hyderabad', 17.3778, 78.5600, '9876543210', 'Chaitanya Nagar, Hyderabad']);
         await run('INSERT INTO kids_lunch_boxes (customer_id, kid_name, school_name, school_address, school_lat, school_lng, parent_phone, delivery_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [customer.id, 'Sia Gupta', 'Greenwood High', 'Koramangala', 12.9348, 77.6109, '9876543211', '456, HSR Layout']);
+            [customer.id, 'Sia Gupta', 'Oakridge International School', 'Bachupally, Hyderabad', 17.3525, 78.5476, '9876543211', 'KPHB Colony, Hyderabad']);
         console.log('Kids inserted.');
 
         const kids = await new Promise((res) => db.all("SELECT id FROM kids_lunch_boxes", (err, rows) => res(rows)));

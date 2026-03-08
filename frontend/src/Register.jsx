@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from './AuthContext.jsx';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Package2, Mail, User, Lock, ChevronRight, ArrowLeft } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const Register = () => {
     const { state } = useLocation();
@@ -13,7 +14,6 @@ const Register = () => {
         google_id: state?.googleInfo?.google_id || null,
         avatar: state?.googleInfo?.avatar || null
     });
-    const [error, setError] = useState('');
     const { register } = useAuth();
     const navigate = useNavigate();
 
@@ -35,8 +35,8 @@ const Register = () => {
             if (user.role === 'admin') navigate('/admin');
             else if (user.role === 'rider') navigate('/rider');
             else navigate('/');
-        } catch (err) {
-            setError(err.response?.data?.error || 'Registration failed. Please try again.');
+            } catch (err) {
+            toast.error(err.response?.data?.error || 'Registration failed. Please try again.');
         }
     };
 
@@ -121,8 +121,6 @@ const Register = () => {
                                 </button>
                             </div>
                         </div>
-
-                        {error && <p className="text-red-500 text-[11px] font-bold text-center bg-red-50 p-3 rounded-xl">{error}</p>}
 
                         <button type="submit" className="uber-btn-black w-full bg-black hover:bg-gray-900 border-none !py-4 mt-4 justify-center">
                             <span>Get Started</span>

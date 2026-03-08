@@ -4,8 +4,33 @@ import api from './api';
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-    const [user, setUser] = useState(JSON.parse(localStorage.getItem('user')) || null);
-    const [loading, setLoading] = useState(false);
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    // Initialize user from localStorage on mount
+    useEffect(() => {
+        try {
+            const savedUser = localStorage.getItem('user');
+            const savedToken = localStorage.getItem('token');
+            if (savedUser && savedToken) {
+                const parsed = JSON.parse(savedUser);
+                // Validate that parsed user has required fields
+                if (parsed && parsed.id && parsed.role) {
+                    setUser(parsed);
+                } else {
+                    // Invalid user data, clear it
+                    localStorage.removeItem('user');
+                    localStorage.removeItem('token');
+                }
+            }
+        } catch (e) {
+            console.error("Error parsing user from localStorage:", e);
+            localStorage.removeItem('user');
+            localStorage.removeItem('token');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
 
     const login = async (email, password) => {
         const response = await api.post('/auth/login', { email, password });
@@ -28,6 +53,7 @@ export const AuthProvider = ({ children }) => {
             // Check if Firebase is properly configured
             if (!auth || !googleProvider) {
                 throw new Error('Firebase not configured properly');
+
             }
 
             const result = await signInWithPopup(auth, googleProvider);
@@ -61,7 +87,9 @@ export const AuthProvider = ({ children }) => {
             if (err.code === 'auth/cancelled-popup-request') {
                 throw new Error('Sign-in was cancelled');
             }
-            throw new Error(err.message || 'Google sign-in failed');
+            // Pass the specific error message from backend if available
+            throw new Error(err?.response?.data?.error || err.message || 'Google sign-in failed');
+
         }
     };
 

@@ -3,7 +3,17 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const path = require('path');
 const { initDb } = require('./database');
+
+// Rate limiter for authentication routes
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // Limit each IP to 20 requests per windowMs
+    message: { error: 'Too many requests from this IP, please try again after 15 minutes.' }
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -21,11 +31,14 @@ const { getKids, addKid, updateKid, getAllKids } = require('./kids');
 const { markLeave, getLeaves } = require('./leaves');
 
 app.use(cors());
+app.use(helmet({
+    contentSecurityPolicy: false, // Disabled for local dev/React scripts. You can strict this in real prod.
+}));
 app.use(express.json());
 
 // Routes
-app.post('/api/auth/register', register);
-app.post('/api/auth/login', login);
+app.post('/api/auth/register', authLimiter, register);
+app.post('/api/auth/login', authLimiter, login);
 
 app.get('/api/orders', authenticate, getOrders);
 app.post('/api/orders', authenticate, authorize(['admin', 'customer']), createOrder);
@@ -42,9 +55,20 @@ app.get('/api/admin/kids', authenticate, authorize(['admin']), getAllKids);
 app.post('/api/leaves', authenticate, markLeave);
 app.get('/api/leaves', authenticate, getLeaves);
 
-app.get('/', (req, res) => {
-    res.send('Lunch Box API is running. Please access the frontend at http://127.0.0.1:5173');
-});
+// Production Static File Serving
+if (process.env.NODE_ENV === 'production') {
+    // Serve any static files
+    app.use(express.static(path.join(__dirname, '../frontend/dist')));
+    
+    // Handle React routing, return all requests to React app (except API calls)
+    app.get(/^(?!\/api).*/, (req, res) => {
+        res.sendFile(path.join(__dirname, '../frontend/dist', 'index.html'));
+    });
+} else {
+    app.get('/', (req, res) => {
+        res.send('Lunch Box API is running. Please access the frontend at http://127.0.0.1:5174');
+    });
+}
 
 app.get('/api/riders', authenticate, authorize(['admin']), (req, res) => {
     db.all('SELECT id, name FROM users WHERE role = "rider"', [], (err, rows) => {
